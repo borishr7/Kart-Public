@@ -54,6 +54,8 @@
 #include "s_sound.h" // song credits
 #include "k_kart.h"
 
+#include "hu_fonts.h"
+
 // coords are scaled
 #define HU_INPUTX 0
 #define HU_INPUTY 0
@@ -334,6 +336,7 @@ void HU_Init(void)
 	// set shift translation table
 	shiftxform = english_shiftxform;
 
+	HU_InitFonts();
 	HU_LoadGraphics();
 }
 
