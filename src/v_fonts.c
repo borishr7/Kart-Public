@@ -1,23 +1,22 @@
 // SONIC ROBO BLAST 2 KART
 //-----------------------------------------------------------------------------
-/// \file  hu_fonts.c
+/// \file  v_fonts.c
 /// \brief Unicode fonts and string drawing functions
 
 #include "doomdef.h"
+#include "doomstat.h"
 #include "console.h"
 #include "v_video.h"
-#include "z_zone.h"
+#include "v_fonts.h"
 #include "w_wad.h"
-
-#include "hu_fonts.h"
-
+#include "z_zone.h"
 
 static size_t num_fonts = 0;
-static fontinfo_t** fonts = NULL;
+static font_t** fonts = NULL;
 
 // Read a single codepoint from a unicode string
 // Advances the source ptr by the number of bytes read
-UINT32 HU_GetCodePoint(char** ptr)
+UINT32 V_GetCodePoint(char** ptr)
 {
 	int    fcount = 0; // Number of flag bits
 	UINT32 cpbits = 0; // Codepoint bits
@@ -70,6 +69,27 @@ UINT32 HU_GetCodePoint(char** ptr)
 	}
 
 	return U_INVAL;
+}
+
+// Free all data from fontinfo_t
+static void free_font(font_t* font)
+{
+	unsigned int i;
+
+	// Free planes LUT
+	for(i = 0; i < 17; i++)
+		free(font->planes[i]);
+
+	// Free individual glyphs
+	for(i = 0; i < font->glyph_count; i++)
+		free(font->glyphs[i]);
+
+	// TODO: are patches[n] supposed to be freed too?
+	free(font->lumpname);
+	free(font->fontname);
+	free(font->patches);
+	free(font->glyphs);
+	free(font);
 }
 
 // ============================= FONTINFO PARSING =============================
@@ -240,32 +260,11 @@ static size_t get_token_list(char** line, char** list, size_t list_size)
 	return count;
 }
 
-// Free all data from fontinfo_t
-static void free_fontinfo(fontinfo_t* font)
-{
-	unsigned int i;
-
-	// Free planes LUT
-	for(i = 0; i < 17; i++)
-		free(font->planes[i]);
-
-	// Free individual glyphs
-	for(i = 0; i < font->glyph_count; i++)
-		free(font->glyphs[i]);
-
-	// TODO: are patches[n] supposed to be freed too?
-	free(font->lumpname);
-	free(font->fontname);
-	free(font->patches);
-	free(font->glyphs);
-	free(font);
-}
-
 // This is just to hide the clutter of repeated error checking
 #define err_break(...) {errset = 1; snprintf(errmsg, 256, __VA_ARGS__); break;}
 
 // Parse fontinfo lump
-static fontinfo_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
+static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 {
 	// Read and allocate data
 	size_t lmpsize = W_LumpLength(lmpnum);
@@ -273,9 +272,9 @@ static fontinfo_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 	W_ReadLump(lmpnum, lmpdata);
 	*(lmpdata+lmpsize) = '\0';
 
-	// Allocate fontinfo
-	fontinfo_t* font = malloc(sizeof(fontinfo_t));
-	memset(font, 0, sizeof(fontinfo_t));
+	// Allocate font struct
+	font_t* font = malloc(sizeof(font_t));
+	memset(font, 0, sizeof(font_t));
 
 	// Allocate token list, 16 entries
 	char** toklist = malloc(16 * sizeof(char*));
@@ -419,7 +418,7 @@ static fontinfo_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 	if(errset)
 	{
 		CONS_Printf("ERROR: \"%s\", Line %lu: %s\n", lmpname, line_num, errmsg);
-		free_fontinfo(font);
+		free_font(font);
 		font = NULL;
 	}
 
@@ -434,7 +433,7 @@ static fontinfo_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 // Load fontinfo lump
 // Returns -1 on error
 // TODO: call I_Error if the lump fails to load from IWAD
-int HU_LoadFont(const char* lmpname)
+int V_LoadFont(const char* lmpname)
 {
 	if(!fonts) return -1;
 
@@ -443,7 +442,7 @@ int HU_LoadFont(const char* lmpname)
 
 	if(lmpnum == LUMPERROR)
 	{
-		CONS_Printf("HU_LoadFont(): \"%s\" not found\n", lmpname);
+		CONS_Printf("V_LoadFont(): \"%s\" not found\n", lmpname);
 		return -1;
 	}
 
@@ -454,25 +453,30 @@ int HU_LoadFont(const char* lmpname)
 
 	if(slotnum == (MAX_FONTS-1))
 	{
-		CONS_Printf("HU_LoadFont(): No free slots!\n");
+		CONS_Printf("V_LoadFont(): No free slots!\n");
 		return -1;
 	}
 
 	// Parse font data
-	fontinfo_t* font = parse_fontinfo(lmpnum, lmpname);
+	font_t* font = parse_fontinfo(lmpnum, lmpname);
 	if(!font)
 	{
-		CONS_Printf("HU_LoadFont(): Failed to load \"%s\"\n", lmpname);
+		CONS_Printf("V_LoadFont(): Failed to load \"%s\"\n", lmpname);
+
+		if(WADFILENUM(lmpnum) <= mainwads)
+			I_Error("Failed to load system font '%s'", lmpname);
+
 		return -1;
 	}
 
 	fonts[slotnum] = font;
 
-	CONS_Printf("HU_LoadFont(): Loaded '%s' on slot %d\n", lmpname, slotnum);
+	CONS_Printf("V_LoadFont(): Loaded '%s' on slot %d\n", lmpname, slotnum);
+//	CONS_Printf("mainwads = %u, this_wad = %u\n", mainwads, WADFILENUM(lmpnum));
 	return 0;
 }
 
-void HU_DrawGlyph(glyph_t* glyph, int sx, int sy)
+void V_DrawGlyph(int sx, int sy, glyph_t* glyph)
 {
 	patch_t* patch = glyph->pgfx;
 	int cx = glyph->rect.x;
@@ -491,52 +495,83 @@ void HU_DrawGlyph(glyph_t* glyph, int sx, int sy)
 	V_DrawCroppedPatch(xpos, ypos, scale, vflags, patch, cx, cy, (cw+cx), (ch+cy));
 }
 
-void HU_DrawString(const char* str, int sx, int sy)
+void V_DrawCharF(int cp, int sx, int sy)
+{
+	if(cp < 0 || cp > U_MAX) return;
+
+	glyph_t** plane;
+	glyph_t*  glyph;
+
+	// Placeholder
+	font_t* font = fonts[0];
+	if(!font) return;
+
+	plane = font->planes[PLANEOF(cp)];
+	if(!plane) return;
+	
+	glyph = plane[CODEOF(cp)];
+	if(!glyph) return;
+
+	V_DrawGlyph(sx, sy, glyph);
+}
+
+void V_DrawStringF(int sx, int sy, char* str)
 {
 	char* s = str;
 	uint32_t cp;
-	int offs = 0;
 
-	fontinfo_t* font = fonts[0];
+	int x_offs = 0;
+	int y_offs = 0;
+
+	// Placeholder
+	font_t* font = fonts[0];
 	if(!font) return;
 
 	// TODO: replace invalid glyphs here
-	// TODO: /n and space
-	while((cp = HU_GetCodePoint(&s)))
+	while((cp = V_GetCodePoint(&s)))
 	{
+		if(cp == 0x20)
+		{
+			x_offs += 8;
+			continue;
+		}
+		if(cp == 0x0A)
+		{
+			y_offs += 12;
+			continue;
+		}
+
 		glyph_t** plane = font->planes[PLANEOF(cp)];
 		if(!plane) continue;
 
 		glyph_t* glyph = plane[CODEOF(cp)];
 		if(!glyph) continue;
 
-		HU_DrawGlyph(glyph, (sx+offs), sy);
+		V_DrawGlyph((sx + x_offs), (sy + y_offs), glyph);
 
-		offs += (glyph->rect.w + 1);
+		x_offs += (glyph->rect.w + 1);
 	}
 }
 
 // Initialization stuff
-void HU_InitFonts()
+void V_InitFonts()
 {
-	if(fonts)
-	{
-		CONS_Printf("HU_InitFonts(): Already initialized!\n");
-		return;
-	}
+	if(fonts) return;
 
 	num_fonts = 0;
 
 	// Allocate font slots
-	fonts = malloc(sizeof(fontinfo_t*) * MAX_FONTS);
-	memset(fonts, 0, sizeof(fontinfo_t*) * MAX_FONTS);
+	fonts = malloc(sizeof(font_t*) * MAX_FONTS);
+	memset(fonts, 0, sizeof(font_t*) * MAX_FONTS);
+
+	CONS_Printf("V_InitFonts(): %u free slots\n", MAX_FONTS);
 
 	// Load system fonts
-	HU_LoadFont("MANIAFNT"); // Mania font
-//	HU_LoadFont("STCFNT");   // Console
-//	HU_LoadFont("MKFNT");    // SRB2Kart
-//	HU_LoadFont("LTFNT");    // Level title
-//	HU_LoadFont("TNYFNT");   // Thin font
-//	HU_LoadFont("CREDFNT");  // Credits
+	V_LoadFont("MANIAFNT"); // Mania font
+//	V_LoadFont("STCFNT");   // Console
+//	V_LoadFont("MKFNT");    // SRB2Kart
+//	V_LoadFont("LTFNT");    // Level title
+//	V_LoadFont("TNYFNT");   // Thin font
+//	V_LoadFont("CREDFNT");  // Credits
 }
 

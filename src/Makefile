@@ -547,7 +547,6 @@ OBJS:=$(i_main_o) \
 		$(OBJDIR)/command.o  \
 		$(OBJDIR)/console.o  \
 		$(OBJDIR)/hu_stuff.o \
-		$(OBJDIR)/hu_fonts.o \
 		$(OBJDIR)/y_inter.o  \
 		$(OBJDIR)/st_stuff.o \
 		$(OBJDIR)/k_kart.o   \
@@ -592,6 +591,7 @@ OBJS:=$(i_main_o) \
 		$(OBJDIR)/r_things.o \
 		$(OBJDIR)/screen.o   \
 		$(OBJDIR)/v_video.o  \
+		$(OBJDIR)/v_fonts.o \
 		$(OBJDIR)/s_sound.o  \
 		$(OBJDIR)/sounds.o   \
 		$(OBJDIR)/w_wad.o    \

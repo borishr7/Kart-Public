@@ -22,6 +22,7 @@
 #include "m_argv.h"
 #include "m_misc.h"
 #include "v_video.h"
+#include "v_fonts.h"
 #include "st_stuff.h"
 #include "hu_stuff.h"
 #include "z_zone.h"
@@ -263,6 +264,8 @@ void SCR_Startup(void)
 	CV_RegisterVar(&cv_constextsize);
 
 	V_SetPalette(0);
+
+	V_InitFonts();
 }
 
 // Called at new frame, if the video mode has changed

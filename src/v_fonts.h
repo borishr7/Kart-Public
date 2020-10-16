@@ -1,10 +1,10 @@
 // SONIC ROBO BLAST 2 KART
 //-----------------------------------------------------------------------------
-/// \file  hu_fonts.h
+/// \file  v_fonts.h
 /// \brief Unicode fonts and string drawing functions
 
-#ifndef __HU_FONTS__
-#define __HU_FONTS__
+#ifndef __V_FONTS__
+#define __V_FONTS__
 
 #define MAX_FONTS 16
 
@@ -14,7 +14,7 @@
 #define U_INVAL 0x1FFFFF
 
 #define PLANEOF(n) ((n >> 16) & 0xFF)
-#define CODEOF(n) (n & 0xFFFF)
+#define CODEOF(n)  (n & 0xFFFF)
 
 typedef struct cliprect
 {
@@ -33,7 +33,7 @@ typedef struct glyph
 	int16_t    gy;   // Glyph Y offset
 } glyph_t;
 
-typedef struct fontinfo
+typedef struct font
 {
 	char*   lumpname; // Lump name, 8 chars
 	char*   fontname; // Font name, 32 chars
@@ -50,15 +50,16 @@ typedef struct fontinfo
 	// Backup list of patches/glyphs
 	patch_t** patches;
 	glyph_t** glyphs;
-} fontinfo_t;
+} font_t;
 
-UINT32 HU_GetCodePoint(char**);
-int    HU_LoadFont(const char*);
+// Functions
+UINT32 V_GetCodePoint(char**);
 
-//fontinfo_t* HU_GetFont(char*);
-void   HU_DrawGlyph(glyph_t*, int, int);
-void   HU_DrawString(const char*, int, int);
+void V_DrawGlyph(int, int, glyph_t*);
+void V_DrawCharF(int, int, int);
+void V_DrawStringF(int, int, char*);
 
-void   HU_InitFonts(void);
+int  V_LoadFont(const char*);
+void V_InitFonts(void);
 
-#endif // __HU_FONTS__
+#endif // __V_FONTS__
