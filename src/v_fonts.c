@@ -71,7 +71,7 @@ UINT32 V_GetCodePoint(char** ptr)
 	return U_INVAL;
 }
 
-// Free all data from fontinfo_t
+// Free all data from font_t struct
 static void free_font(font_t* font)
 {
 	unsigned int i;
@@ -447,11 +447,11 @@ int V_LoadFont(const char* lmpname)
 	}
 
 	// Find first free slot
-	int slotnum = 0;
-	while(slotnum < MAX_FONTS)
-		if(fonts[slotnum] == NULL) break;
+	int slot;
+	for(slot = 0;slot < MAX_FONTS;slot++)
+		if(fonts[slot] == NULL) break;
 
-	if(slotnum == (MAX_FONTS-1))
+	if(slot == (MAX_FONTS-1))
 	{
 		CONS_Printf("V_LoadFont(): No free slots!\n");
 		return -1;
@@ -461,18 +461,17 @@ int V_LoadFont(const char* lmpname)
 	font_t* font = parse_fontinfo(lmpnum, lmpname);
 	if(!font)
 	{
-		CONS_Printf("V_LoadFont(): Failed to load \"%s\"\n", lmpname);
-
 		if(WADFILENUM(lmpnum) <= mainwads)
 			I_Error("Failed to load system font '%s'", lmpname);
+		else
+			CONS_Printf("V_LoadFont(): Failed to load \"%s\"\n", lmpname);
 
 		return -1;
 	}
 
-	fonts[slotnum] = font;
+	fonts[slot] = font;
 
-	CONS_Printf("V_LoadFont(): Loaded '%s' on slot %d\n", lmpname, slotnum);
-//	CONS_Printf("mainwads = %u, this_wad = %u\n", mainwads, WADFILENUM(lmpnum));
+	CONS_Printf("V_LoadFont(): Loaded '%s' on slot %d\n", lmpname, slot);
 	return 0;
 }
 
@@ -569,7 +568,7 @@ void V_InitFonts()
 	// Load system fonts
 	V_LoadFont("MANIAFNT"); // Mania font
 //	V_LoadFont("STCFNT");   // Console
-//	V_LoadFont("MKFNT");    // SRB2Kart
+	V_LoadFont("MKFNT");    // SRB2Kart
 //	V_LoadFont("LTFNT");    // Level title
 //	V_LoadFont("TNYFNT");   // Thin font
 //	V_LoadFont("CREDFNT");  // Credits
