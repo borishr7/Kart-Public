@@ -35,12 +35,16 @@ typedef struct glyph
 
 typedef struct font
 {
-	char*   lumpname; // Lump name, 8 chars
-	char*   fontname; // Font name, 32 chars
-	size_t  pxsize;   // Glyph size in pixels
-	fixed_t defscale; // Default scale factor
+	char* fontid;    // 8 chars lowercase
+	char* fontname;  // 32 chars ascii
+	char* copyright; // 32 chars
 
-	size_t tag_count;   // Number of emoji tags
+	int16_t sp_x; // Global x spacing
+	int16_t sp_y; // Global y spacing
+
+	fixed_t  scale;  // Default scale factor
+	glyph_t* repchr; // Default replacement char
+
 	size_t patch_count; // Number of patch lumps
 	size_t glyph_count; // Number of glyphs
 
@@ -53,11 +57,11 @@ typedef struct font
 } font_t;
 
 // Functions
-UINT32 V_GetCodePoint(char**);
+UINT32   V_GetCodePoint(char**);
+glyph_t* V_GetGlyph(font_t*, int);
 
-void V_DrawGlyph(int, int, glyph_t*);
-void V_DrawCharF(int, int, int);
-void V_DrawStringF(int, int, char*);
+int  V_DrawGlyph(int, int, int, glyph_t*);
+void V_DrawStringF(int, int, int, int, char*);
 
 int  V_LoadFont(const char*);
 void V_InitFonts(void);

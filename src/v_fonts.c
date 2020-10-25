@@ -85,7 +85,7 @@ static void free_font(font_t* font)
 		free(font->glyphs[i]);
 
 	// TODO: are patches[n] supposed to be freed too?
-	free(font->lumpname);
+	free(font->fontid);
 	free(font->fontname);
 	free(font->patches);
 	free(font->glyphs);
@@ -100,42 +100,39 @@ enum fontinfo_keywords
 	K_LUMP,      // lump
 	K_GFX,       // gfx
 	K_TAG,       // tag
-	K_DEFSCALE,  // defscale
-	K_PXSIZE,    // pxsize
+	K_SCALE,     // scale
 	K_FONTNAME,  // fontname
-	K_FONTGROUP, // fontgroup
-	K_COPYRIGHT  // copyright
+	K_FONTID,    // fontid
+	K_COPYRIGHT, // copyright
+	K_SPACING    // spacing
 };
 
-// Decode fontinfo keywords into enum values
 static int untok_keyword(char* key)
 {
 	if(!key) return 0;
 
 	switch(*key)
 	{
-		case 'l':
-			if(!strcmp(key, "lump")) return K_LUMP;
-			break;
 		case 'c':
 			if(!strcmp(key, "char"))      return K_CHAR;
 			if(!strcmp(key, "copyright")) return K_COPYRIGHT;
 			break;
 		case 'f':
+			if(!strcmp(key, "fontid"))    return K_FONTID;
 			if(!strcmp(key, "fontname"))  return K_FONTNAME;
-			if(!strcmp(key, "fontgroup")) return K_FONTGROUP;
-			break;
-		case 'd':
-			if(!strcmp(key, "defscale")) return K_DEFSCALE;
 			break;
 		case 'g':
 			if(!strcmp(key, "gfx")) return K_GFX;
 			break;
+		case 'l':
+			if(!strcmp(key, "lump")) return K_LUMP;
+			break;
+		case 's':
+			if(!strcmp(key, "spacing")) return K_SPACING;
+			if(!strcmp(key, "scale"))   return K_SCALE;
+			break;
 		case 't':
 			if(!strcmp(key, "tag")) return K_TAG;
-			break;
-		case 'p':
-			if(!strcmp(key, "pxsize")) return K_PXSIZE;
 			break;
 	}
 	return 0;
@@ -201,6 +198,19 @@ static char* untok_string(char* str)
 	return str;
 }
 
+// Just a wrapper for strtol
+//static long int untok_int(char* str)
+//{
+//	long int n;
+//	char* s;
+//
+//	n = strtol(str, s, 10);
+//
+//	if(s || n > )
+//
+//	return n;
+//}
+
 // Simple whitespace-delimited tokenizer
 static char* get_token(char** str_ptr)
 {
@@ -260,10 +270,8 @@ static size_t get_token_list(char** line, char** list, size_t list_size)
 	return count;
 }
 
-// This is just to hide the clutter of repeated error checking
 #define err_break(...) {errset = 1; snprintf(errmsg, 256, __VA_ARGS__); break;}
 
-// Parse fontinfo lump
 static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 {
 	// Read and allocate data
@@ -309,7 +317,7 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 			case K_FONTNAME:
 			{
 				int n = get_token_list(&line, toklist, 16);
-				if(n != 1) err_break("Expected a single argument, got %d\n", n);
+				if(n != 1) err_break("Syntax error! Expected a valid string\n");
 
 				char* name = untok_string(toklist[0]);
 				if(!name) err_break("Expected a valid string argument");
@@ -318,32 +326,41 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 				strcpy(font->fontname, name);
 				break;
 			}
-//			case K_PXSIZE:
+//			case K_FONTID:
 //			{
 //				int n = get_token_list(&line, toklist, 16);
-//				if(n != 1) err_break("Expected a single argument, got %d\n", n);
+//				if(n != 1) err_break("Syntax error!");
 
-//				int pxsize = strtol(toklist[0], NULL, 10);
-//				if(pxsize < 0)
+				// TODO: convert to lower case and check
 
-//				font->pxsize = pxsize;
 //				break;
 //			}
+			case K_SPACING:
+			{
+				int n = get_token_list(&line, toklist, 16);
+				if(n != 2)
+					err_break("Syntax error! Expected %i args, got %d\n", 2, n);
+
+				int sp_x = strtol(toklist[0], NULL, 10);
+				int sp_y = strtol(toklist[1], NULL, 10);
+
+				// TODO: validate
+				font->sp_x = sp_x;
+				font->sp_y = sp_y;
+				break;
+			}
 			case K_LUMP:
 			{
 				int n = get_token_list(&line, toklist, 16);
 				if(n != 3) err_break("Syntax error!");
 
-				// Get gfxname
 				char* gfxname = untok_string(toklist[2]);
 				if(!gfxname) err_break("Expected a valid lump name");
 
-				// Check if it exists
 				lumpnum_t gfxnum = W_CheckNumForName(gfxname);
 				if(gfxnum == LUMPERROR)
 					err_break("Lump \"%s\" not found", gfxname);
 
-				// Load the lump itself
 				patch_t* gfx = W_CachePatchNum(gfxnum, PU_HUDGFX);
 
 				// Resize lump list
@@ -360,23 +377,21 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 			{
 				int n = get_token_list(&line, toklist, 16);
 				if(n != 8)
-					err_break("Syntax error! Expected 8 args, got %d\n", n);
+					err_break("Syntax error! Expected %i args, got %d\n", 8, n);
 
-				// Validate codepoint
 				int codepoint = untok_codepoint(toklist[0]);
 				if(codepoint < 0) err_break("Invalid codepoint \"%s\"", toklist[0]);
 
-				// Get lump index
-				int lump_index = strtol(toklist[1], NULL, 10);
-				if(lump_index < 0 || lump_index >= font->patch_count)
-					err_break("No lump matching index '%d'", lump_index);
+				int lmpindex = strtol(toklist[1], NULL, 10);
+				if(lmpindex >= (int)font->patch_count)
+					err_break("No lump matching index '%d'", lmpindex);
 
 				// Allocate glyph and fill data
 				glyph_t* glyph = malloc(sizeof(glyph_t));
 				memset(glyph, 0, sizeof(glyph_t));
 
 				glyph->code   = codepoint;
-				glyph->pgfx   = font->patches[lump_index];
+				glyph->pgfx   = (lmpindex < 0) ? NULL : font->patches[lmpindex];
 				glyph->rect.x = strtol(toklist[2], NULL, 10);
 				glyph->rect.y = strtol(toklist[3], NULL, 10);
 				glyph->rect.w = strtol(toklist[4], NULL, 10);
@@ -415,6 +430,13 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 		}
 	}
 
+	// TODO: id must be lowercase characters only
+	if(!font->fontid)
+	{
+		font->fontid = malloc(10);
+		strcpy(font->fontid, lmpname);
+	}
+
 	if(errset)
 	{
 		CONS_Printf("ERROR: \"%s\", Line %lu: %s\n", lmpname, line_num, errmsg);
@@ -430,15 +452,12 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 
 // ============================================================================
 
-// Load fontinfo lump
-// Returns -1 on error
-// TODO: call I_Error if the lump fails to load from IWAD
+// TODO: reloading fonts: "V_LoadFont(): Reloaded '%s'\n"
 int V_LoadFont(const char* lmpname)
 {
 	if(!fonts) return -1;
 
 	lumpnum_t lmpnum = W_CheckNumForName(lmpname);
-//	char* wadname = wadfiles[WADFILENUM(lmpnum)]->filename;
 
 	if(lmpnum == LUMPERROR)
 	{
@@ -472,85 +491,115 @@ int V_LoadFont(const char* lmpname)
 	fonts[slot] = font;
 
 	CONS_Printf("V_LoadFont(): Loaded '%s' on slot %d\n", lmpname, slot);
+	CONS_Printf("-> %s\n", font->fontid);
 	return 0;
 }
 
-void V_DrawGlyph(int sx, int sy, glyph_t* glyph)
+//glyph_t* V_GetGlyph(font_t* font, int cp, int flags)
+glyph_t* V_GetGlyph(font_t* font, int cp)
 {
-	patch_t* patch = glyph->pgfx;
+	if(!font) return NULL;
+	if(cp < 0 || cp > U_MAX) return NULL;
+
+	glyph_t** plane = font->planes[PLANEOF(cp)];
+	if(!plane) return NULL;
+
+	glyph_t* glyph = plane[CODEOF(cp)];
+	if(!glyph) return NULL;
+
+	return glyph;
+}
+
+// TODO: return font_t* instead
+//int V_GetFont(const char* id)
+//{
+//	int i;
+//	for(i = 0;i < (int)num_fonts;i++)
+//	{
+//		font_t* font = fonts[i];
+//		if(!font) continue;
+//
+//		char* fontid = font->fontid;
+//		if(!fontid) continue;
+//
+//		if(!strcmp(id, fontid)) return i;
+//	}
+//	return -1;
+//}
+
+int V_DrawGlyph(int sx, int sy, int scale, glyph_t* glyph)
+{
+	if(!glyph) return 0;
+
 	int cx = glyph->rect.x;
 	int cy = glyph->rect.y;
 	int cw = glyph->rect.w;
 	int ch = glyph->rect.h;
-	int gx = glyph->gx;
+//	int gx = glyph->gx;
 	int gy = glyph->gy;
 
-	int xpos = (sx << FRACBITS);
-	int ypos = ((sy+gy) << FRACBITS);
+	// Clamp scale factor value
+	if(scale < 1) scale = 1;
 
-	uint32_t scale = (1 << FRACBITS);
-	uint32_t vflags = (V_NOSCALEPATCH | V_NOSCALESTART);
+	patch_t* patch = glyph->pgfx;
+	if(patch)
+	{
+		// TODO: option to ignore offset assignments
+		int xpos = (sx << FRACBITS);
+		int ypos = ((sy+gy) << FRACBITS);
+		uint32_t scf = (scale << FRACBITS);
+		uint32_t vflags = (V_NOSCALEPATCH | V_NOSCALESTART);
 
-	V_DrawCroppedPatch(xpos, ypos, scale, vflags, patch, cx, cy, (cw+cx), (ch+cy));
+		V_DrawCroppedPatch(xpos, ypos, scf, vflags, patch, cx, cy, (cw+cx), (ch+cy));
+	}
+
+	return (cw * scale);
 }
 
-void V_DrawCharF(int cp, int sx, int sy)
+//void V_DrawStringF(int sx, int sy, int scale, font_t* font, char* str)
+void V_DrawStringF(int sx, int sy, int scale, int fontid, char* str)
 {
-	if(cp < 0 || cp > U_MAX) return;
-
-	glyph_t** plane;
-	glyph_t*  glyph;
+	if(fontid > (int)num_fonts) return;
 
 	// Placeholder
-	font_t* font = fonts[0];
+//	font_t* font = fonts[1];
+	font_t* font = fonts[fontid];
 	if(!font) return;
 
-	plane = font->planes[PLANEOF(cp)];
-	if(!plane) return;
-	
-	glyph = plane[CODEOF(cp)];
-	if(!glyph) return;
-
-	V_DrawGlyph(sx, sy, glyph);
-}
-
-void V_DrawStringF(int sx, int sy, char* str)
-{
-	char* s = str;
-	uint32_t cp;
+	// Clamp scale value
+	if(scale < 1) scale = 1;
 
 	int x_offs = 0;
 	int y_offs = 0;
 
-	// Placeholder
-	font_t* font = fonts[0];
-	if(!font) return;
+	char* s = str;
+	uint32_t cp;
 
-	// TODO: replace invalid glyphs here
 	while((cp = V_GetCodePoint(&s)))
 	{
-		if(cp == 0x20)
-		{
-			x_offs += 8;
-			continue;
-		}
+		glyph_t* glyph = V_GetGlyph(font, cp);
+		if(!glyph) glyph = V_GetGlyph(font, 0x0020);
+
+		// Linefeed
 		if(cp == 0x0A)
 		{
-			y_offs += 12;
+			x_offs  = 0;
+			y_offs += ((glyph->rect.h + 1)*scale);
 			continue;
 		}
 
-		glyph_t** plane = font->planes[PLANEOF(cp)];
-		if(!plane) continue;
+		// Ignore other ascii control chars
+		// TODO: add colormap range: 0x10 - 0x1F
+		if(cp < 0x20) continue;
 
-		glyph_t* glyph = plane[CODEOF(cp)];
-		if(!glyph) continue;
-
-		V_DrawGlyph((sx + x_offs), (sy + y_offs), glyph);
-
-		x_offs += (glyph->rect.w + 1);
+		x_offs += V_DrawGlyph((sx + x_offs), (sy + y_offs), scale, glyph);
+		x_offs += font->sp_x;
 	}
 }
+
+//void V_DebugCharMap(font_t* font)
+//{
+//}
 
 // Initialization stuff
 void V_InitFonts()
@@ -566,11 +615,14 @@ void V_InitFonts()
 	CONS_Printf("V_InitFonts(): %u free slots\n", MAX_FONTS);
 
 	// Load system fonts
-	V_LoadFont("MANIAFNT"); // Mania font
-//	V_LoadFont("STCFNT");   // Console
-	V_LoadFont("MKFNT");    // SRB2Kart
-//	V_LoadFont("LTFNT");    // Level title
-//	V_LoadFont("TNYFNT");   // Thin font
-//	V_LoadFont("CREDFNT");  // Credits
+	V_LoadFont("MANFNT"); // Mania font
+	V_LoadFont("MKFNT");  // SRB2Kart
+	V_LoadFont("LTFNT");  // Level title
+	V_LoadFont("TNYFNT"); // Thin font
+//	V_LoadFont("STCFNT"); // Console
+	V_LoadFont("CRFNT");  // Credits
+
+//	printf("crfnt test:  %i\n", V_GetFont("CRFNT"));
+//	printf("manfnt test: %i\n", V_GetFont("MANFNT"));
 }
 
