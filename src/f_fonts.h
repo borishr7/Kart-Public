@@ -1,10 +1,10 @@
 // SONIC ROBO BLAST 2 KART
 //-----------------------------------------------------------------------------
-/// \file  v_fonts.h
+/// \file  f_fonts.h
 /// \brief Unicode fonts and string drawing functions
 
-#ifndef __V_FONTS__
-#define __V_FONTS__
+#ifndef __F_FONTS__
+#define __F_FONTS__
 
 #define MAX_FONTS 16
 
@@ -57,15 +57,15 @@ typedef struct font
 } font_t;
 
 // Functions
-int V_GetCodepoint(const char** ptr);
+int F_GetCodepoint(const char** ptr);
 
-font_t*  V_GetFont(const char* id);
-glyph_t* V_GetGlyph(font_t* font, int cp);
+font_t*  F_GetFont(const char* id);
+glyph_t* F_GetGlyph(font_t* font, int cp);
 
-int  V_DrawGlyph(int sx, int sy, int scale, int colormap, glyph_t* glyph);
-void V_DrawStringF(int sx, int sy, int scale, font_t* font, const char* str);
+int  F_DrawGlyph(int sx, int sy, int scale, int colormap, glyph_t* glyph);
+void F_DrawString(int sx, int sy, int scale, font_t* font, const char* str);
 
-int  V_LoadFont(const char* lmpname);
-void V_InitFonts(void);
+int  F_LoadFont(const char* lmpname);
+void F_InitFonts(void);
 
-#endif // __V_FONTS__
+#endif // __F_FONTS__

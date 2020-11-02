@@ -1,13 +1,13 @@
 // SONIC ROBO BLAST 2 KART
 //-----------------------------------------------------------------------------
-/// \file  v_fonts.c
+/// \file  f_fonts.c
 /// \brief Unicode fonts and string drawing functions
 
 #include "doomdef.h"
 #include "doomstat.h"
 #include "console.h"
 #include "v_video.h"
-#include "v_fonts.h"
+#include "f_fonts.h"
 #include "w_wad.h"
 #include "z_zone.h"
 
@@ -18,7 +18,7 @@ static font_t** fonts = NULL;
 
 // Read a single codepoint from a UTF-8 string
 // Advances the source ptr by the number of bytes read
-int V_GetCodepoint(const char** ptr)
+int F_GetCodepoint(const char** ptr)
 {
 	int    fcount = 0; // Number of flag bits
 	UINT32 cpbits = 0; // Codepoint bits
@@ -445,8 +445,8 @@ static int parse_fontinfo(font_t* font, lumpnum_t lmpnum)
 
 // ============================================================================
 
-// TODO: reloading fonts: "V_LoadFont(): Reloaded '%s'\n"
-int V_LoadFont(const char* lmpname)
+// TODO: reloading fonts: "F_LoadFont(): Reloaded '%s'\n"
+int F_LoadFont(const char* lmpname)
 {
 	if(!fonts) return -1;
 
@@ -454,7 +454,7 @@ int V_LoadFont(const char* lmpname)
 
 	if(lmpnum == LUMPERROR)
 	{
-		CONS_Printf("V_LoadFont(): \"%s\" not found\n", lmpname);
+		CONS_Printf("F_LoadFont(): \"%s\" not found\n", lmpname);
 		return -1;
 	}
 
@@ -466,7 +466,7 @@ int V_LoadFont(const char* lmpname)
 
 	if(slot == (MAX_FONTS-1))
 	{
-		CONS_Printf("V_LoadFont(): No free slots!\n");
+		CONS_Printf("F_LoadFont(): No free slots!\n");
 		return -1;
 	}
 
@@ -482,7 +482,7 @@ int V_LoadFont(const char* lmpname)
 		if(WADFILENUM(lmpnum) <= mainwads)
 			I_Error("Failed to load system font '%s'", lmpname);
 		else
-			CONS_Printf("V_LoadFont(): Failed to load \"%s\"\n", lmpname);
+			CONS_Printf("F_LoadFont(): Failed to load \"%s\"\n", lmpname);
 
 		return -1;
 	}
@@ -497,12 +497,12 @@ int V_LoadFont(const char* lmpname)
 	fonts[slot] = font;
 	num_fonts++;
 
-	CONS_Printf("V_LoadFont(): Loaded '%s' on slot %d\n", lmpname, slot);
+	CONS_Printf("F_LoadFont(): Loaded '%s' on slot %d\n", lmpname, slot);
 	return 0;
 }
 
-//glyph_t* V_GetGlyph(font_t* font, int cp, int flags)
-glyph_t* V_GetGlyph(font_t* font, int cp)
+//glyph_t* F_GetGlyph(font_t* font, int cp, int flags)
+glyph_t* F_GetGlyph(font_t* font, int cp)
 {
 	if(!font) return NULL;
 
@@ -517,7 +517,7 @@ glyph_t* V_GetGlyph(font_t* font, int cp)
 	return glyph;
 }
 
-font_t* V_GetFont(const char* str)
+font_t* F_GetFont(const char* str)
 {
 	// Lowercase ID
 	char lstr[10];
@@ -537,8 +537,8 @@ font_t* V_GetFont(const char* str)
 	return NULL;
 }
 
-//int V_DrawGlyph(int sx, int sy, fixed_t scale, int flags, glyph_t* glyph)
-int V_DrawGlyph(int sx, int sy, int scale, int colormap, glyph_t* glyph)
+//int F_DrawGlyph(int sx, int sy, fixed_t scale, int flags, glyph_t* glyph)
+int F_DrawGlyph(int sx, int sy, int scale, int colormap, glyph_t* glyph)
 {
 	if(!glyph) return 0;
 
@@ -572,7 +572,7 @@ int V_DrawGlyph(int sx, int sy, int scale, int colormap, glyph_t* glyph)
 	return ((glyph->rect.w + 1) * scale);
 }
 
-void V_DrawStringF(int sx, int sy, int scale, font_t* font, const char* str)
+void F_DrawString(int sx, int sy, int scale, font_t* font, const char* str)
 {
 	if(!font) return;
 
@@ -586,11 +586,11 @@ void V_DrawStringF(int sx, int sy, int scale, font_t* font, const char* str)
 	// Clamp scale value
 	if(scale < 1) scale = 1;
 
-	while((cp = V_GetCodepoint(&s)))
+	while((cp = F_GetCodepoint(&s)))
 	{
 		// TODO: move this to after the ctrl char check
-		glyph_t* glyph = V_GetGlyph(font, cp);
-		if(!glyph) glyph = V_GetGlyph(font, 0x20);
+		glyph_t* glyph = F_GetGlyph(font, cp);
+		if(!glyph) glyph = F_GetGlyph(font, 0x20);
 
 		// TODO: replace invalid chars here
 
@@ -613,20 +613,20 @@ void V_DrawStringF(int sx, int sy, int scale, font_t* font, const char* str)
 			continue;
 		}
 
-		x_offs += V_DrawGlyph((sx + x_offs), (sy + y_offs), scale, cmap, glyph);
+		x_offs += F_DrawGlyph((sx + x_offs), (sy + y_offs), scale, cmap, glyph);
 	}
 }
 
-//void V_DebugCharMap(font_t* font)
+//void F_DebugCharMap(font_t* font)
 //{
 //}
 
 // Initialization stuff
-void V_InitFonts()
+void F_InitFonts()
 {
 	if(fonts) return;
 
-	CONS_Printf("V_InitFonts()...\n");
+	CONS_Printf("F_InitFonts()...\n");
 
 	num_fonts = 0;
 
@@ -635,11 +635,11 @@ void V_InitFonts()
 	memset(fonts, 0, sizeof(font_t*) * MAX_FONTS);
 
 	// Load system fonts
-	V_LoadFont("MANFNT"); // Mania font
-	V_LoadFont("MKFNT");  // SRB2Kart
-	V_LoadFont("LTFNT");  // Level title
-	V_LoadFont("TNYFNT"); // Thin font
-//	V_LoadFont("STCFNT"); // Console
-	V_LoadFont("CRFNT");  // Credits
+	F_LoadFont("MANFNT"); // Mania font
+	F_LoadFont("MKFNT");  // SRB2Kart
+	F_LoadFont("LTFNT");  // Level title
+	F_LoadFont("TNYFNT"); // Thin font
+//	F_LoadFont("STCFNT"); // Console
+	F_LoadFont("CRFNT");  // Credits
 }
 

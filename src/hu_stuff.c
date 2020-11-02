@@ -31,7 +31,7 @@
 
 #include "keys.h"
 #include "v_video.h"
-#include "v_fonts.h"
+#include "f_fonts.h"
 
 #include "w_wad.h"
 #include "z_zone.h"
