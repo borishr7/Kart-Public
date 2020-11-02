@@ -9,9 +9,9 @@
 #define MAX_FONTS 16
 
 // Codepoint defs
-#define U_NULL  0x000000
-#define U_MAX   0x10FFFF
-#define U_INVAL 0x1FFFFF
+#define U_NULL 0x000000
+#define U_MAX  0x10FFFF
+#define U_MASK 0x1FFFFF // 21 bits
 
 #define PLANEOF(n) ((n >> 16) & 0xFF)
 #define CODEOF(n)  (n & 0xFFFF)
@@ -57,13 +57,15 @@ typedef struct font
 } font_t;
 
 // Functions
-UINT32   V_GetCodePoint(char**);
-glyph_t* V_GetGlyph(font_t*, int);
+int V_GetCodepoint(const char** ptr);
 
-int  V_DrawGlyph(int, int, int, glyph_t*);
-void V_DrawStringF(int, int, int, int, char*);
+font_t*  V_GetFont(const char* id);
+glyph_t* V_GetGlyph(font_t* font, int cp);
 
-int  V_LoadFont(const char*);
+int  V_DrawGlyph(int sx, int sy, int scale, int colormap, glyph_t* glyph);
+void V_DrawStringF(int sx, int sy, int scale, font_t* font, const char* str);
+
+int  V_LoadFont(const char* lmpname);
 void V_InitFonts(void);
 
 #endif // __V_FONTS__

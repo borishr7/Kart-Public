@@ -11,42 +11,42 @@
 #include "w_wad.h"
 #include "z_zone.h"
 
+// TODO: split functionality between f_fonts and v_video
+
 static size_t num_fonts = 0;
 static font_t** fonts = NULL;
 
-// Read a single codepoint from a unicode string
+// Read a single codepoint from a UTF-8 string
 // Advances the source ptr by the number of bytes read
-UINT32 V_GetCodePoint(char** ptr)
+int V_GetCodepoint(const char** ptr)
 {
 	int    fcount = 0; // Number of flag bits
 	UINT32 cpbits = 0; // Codepoint bits
 	UINT32 olmask = 4; // Overlong detector mask
 
-	char* str  = *ptr; // Obtain string
-	UINT8 lchr = *str; // Copy leading byte
-	*ptr = ++str;      // Advance one byte
+	const char* str = *ptr; // Obtain string
+	UINT8 lbyte = *str;     // Copy leading byte
+	*ptr = ++str;           // Advance one byte
 
-	// No more than 4 flag bits (lchr > 11110xxx)
-	if(lchr > 0xF7)
-		return U_INVAL;
+	// No more than 4 flag bits (lbyte > 11110xxx)
+	if(lbyte > 0xF7) return -1;
 
 	// Count flag bits and generate mask
-	while(lchr & 0x80)
+	while(lbyte & 0x80)
 	{
 		fcount++;
-		lchr <<= 1;
+		lbyte <<= 1;
 		olmask <<= (fcount+1);
 	}
 
 	// Just plain ascii, return
-	if(!fcount)
-		return lchr;
+	if(!fcount) return lbyte;
 
 	// A valid leading byte must have 2-4 flag bits
 	if(fcount > 1)
 	{
 		// Save remaining bits
-		cpbits = (lchr >> fcount);
+		cpbits = (lbyte >> fcount);
 
 		// Read remaining bytes
 		while(--fcount)
@@ -54,27 +54,26 @@ UINT32 V_GetCodePoint(char** ptr)
 			UINT8 b = *(str++);
 
 			// No invalid/truncated sequences
-			if((b & 0xC0) ^ 0x80)
-				return U_INVAL;
+			if((b & 0xC0) ^ 0x80) return -1;
 
 			cpbits = (cpbits << 6) | (b & 0x3F);
 		}
 
 		// Check for overlong/invalid codepoint
 		if(cpbits <= olmask || cpbits > U_MAX)
-			return U_INVAL;
+			return -1;
 
 		*ptr = str; // Advance bytes
 		return cpbits;
 	}
 
-	return U_INVAL;
+	return -1;
 }
 
 // Free all data from font_t struct
-static void free_font(font_t* font)
+static void free_fontdata(font_t* font)
 {
-	unsigned int i;
+	size_t i;
 
 	// Free planes LUT
 	for(i = 0; i < 17; i++)
@@ -89,7 +88,14 @@ static void free_font(font_t* font)
 	free(font->fontname);
 	free(font->patches);
 	free(font->glyphs);
-	free(font);
+}
+
+static size_t strtolower(char* dst, const char* src)
+{
+	const char* s = src;
+	while(*s) *(dst++) = tolower(*(s++));
+	*(dst) = '\0';
+	return (s - src);
 }
 
 // ============================= FONTINFO PARSING =============================
@@ -97,10 +103,10 @@ static void free_font(font_t* font)
 enum fontinfo_keywords
 {
 	K_CHAR = 1,  // char
-	K_LUMP,      // lump
-	K_GFX,       // gfx
 	K_TAG,       // tag
+	K_SET,       // set
 	K_SCALE,     // scale
+	K_GFXLUMP,   // gfxlump
 	K_FONTNAME,  // fontname
 	K_FONTID,    // fontid
 	K_COPYRIGHT, // copyright
@@ -122,12 +128,10 @@ static int untok_keyword(char* key)
 			if(!strcmp(key, "fontname"))  return K_FONTNAME;
 			break;
 		case 'g':
-			if(!strcmp(key, "gfx")) return K_GFX;
-			break;
-		case 'l':
-			if(!strcmp(key, "lump")) return K_LUMP;
+			if(!strcmp(key, "gfxlump")) return K_GFXLUMP;
 			break;
 		case 's':
+			if(!strcmp(key, "set"))     return K_SET;
 			if(!strcmp(key, "spacing")) return K_SPACING;
 			if(!strcmp(key, "scale"))   return K_SCALE;
 			break;
@@ -150,7 +154,7 @@ static int untok_codepoint(char* s)
 	if(*(s++) != 'U') return -1;
 	if(*(s++) != '+') return -1;
 
-	// Check empty hex notation
+	// Check for empty hex notation
 	if(*s == '\0') return -1;
 
 	// Parse hex code
@@ -198,15 +202,12 @@ static char* untok_string(char* str)
 	return str;
 }
 
-// Just a wrapper for strtol
 //static long int untok_int(char* str)
 //{
 //	long int n;
 //	char* s;
 //
 //	n = strtol(str, s, 10);
-//
-//	if(s || n > )
 //
 //	return n;
 //}
@@ -257,6 +258,7 @@ static size_t get_token_list(char** line, char** list, size_t list_size)
 {
 	size_t count = 0;
 
+	//for(count = 0; count < list_size; count++)
 	while(count < list_size)
 	{
 		char* tok = get_token(line);
@@ -272,7 +274,7 @@ static size_t get_token_list(char** line, char** list, size_t list_size)
 
 #define err_break(...) {errset = 1; snprintf(errmsg, 256, __VA_ARGS__); break;}
 
-static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
+static int parse_fontinfo(font_t* font, lumpnum_t lmpnum)
 {
 	// Read and allocate data
 	size_t lmpsize = W_LumpLength(lmpnum);
@@ -280,12 +282,8 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 	W_ReadLump(lmpnum, lmpdata);
 	*(lmpdata+lmpsize) = '\0';
 
-	// Allocate font struct
-	font_t* font = malloc(sizeof(font_t));
-	memset(font, 0, sizeof(font_t));
-
-	// Allocate token list, 16 entries
-	char** toklist = malloc(16 * sizeof(char*));
+	// Token list
+	char* toklist[16];
 	memset(toklist, 0, (16 * sizeof(char*)));
 
 	// Allocate error message string
@@ -312,12 +310,22 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 		int kcode = untok_keyword(tok);
 		if(!kcode) err_break("Invalid keyword \"%s\"", tok);
 
+		// args
+		int ntokens = get_token_list(&line, toklist, 16);
+
 		switch(kcode)
 		{
+//			case K_SET:
+//			{
+//				break;
+//			}
+//			case K_FONTID:
+//			{
+//				break;
+//			}
 			case K_FONTNAME:
 			{
-				int n = get_token_list(&line, toklist, 16);
-				if(n != 1) err_break("Syntax error! Expected a valid string\n");
+				if(ntokens != 1) err_break("Syntax error! Expected a valid string");
 
 				char* name = untok_string(toklist[0]);
 				if(!name) err_break("Expected a valid string argument");
@@ -326,20 +334,10 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 				strcpy(font->fontname, name);
 				break;
 			}
-//			case K_FONTID:
-//			{
-//				int n = get_token_list(&line, toklist, 16);
-//				if(n != 1) err_break("Syntax error!");
-
-				// TODO: convert to lower case and check
-
-//				break;
-//			}
 			case K_SPACING:
 			{
-				int n = get_token_list(&line, toklist, 16);
-				if(n != 2)
-					err_break("Syntax error! Expected %i args, got %d\n", 2, n);
+				if(ntokens != 2)
+					err_break("Syntax error! Expected %i args, got %d", 2, ntokens);
 
 				int sp_x = strtol(toklist[0], NULL, 10);
 				int sp_y = strtol(toklist[1], NULL, 10);
@@ -349,12 +347,12 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 				font->sp_y = sp_y;
 				break;
 			}
-			case K_LUMP:
+			case K_GFXLUMP:
 			{
-				int n = get_token_list(&line, toklist, 16);
-				if(n != 3) err_break("Syntax error!");
+				if(ntokens != 1)
+					err_break("Syntax error! Expected a valid lump name");
 
-				char* gfxname = untok_string(toklist[2]);
+				char* gfxname = untok_string(toklist[0]);
 				if(!gfxname) err_break("Expected a valid lump name");
 
 				lumpnum_t gfxnum = W_CheckNumForName(gfxname);
@@ -375,9 +373,8 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 			}
 			case K_CHAR:
 			{
-				int n = get_token_list(&line, toklist, 16);
-				if(n != 8)
-					err_break("Syntax error! Expected %i args, got %d\n", 8, n);
+				if(ntokens != 8)
+					err_break("Syntax error! Expected %i args, got %d", 8, ntokens);
 
 				int codepoint = untok_codepoint(toklist[0]);
 				if(codepoint < 0) err_break("Invalid codepoint \"%s\"", toklist[0]);
@@ -422,6 +419,7 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 				}
 
 				// TODO: Check if glyph is already set
+				// TODO: if outside range, set gfx to null and gen a warn msg
 //				else { }
 
 				font->planes[plane_num][code_num] = glyph;
@@ -430,24 +428,19 @@ static font_t* parse_fontinfo(lumpnum_t lmpnum, const char* lmpname)
 		}
 	}
 
-	// TODO: id must be lowercase characters only
-	if(!font->fontid)
-	{
-		font->fontid = malloc(10);
-		strcpy(font->fontid, lmpname);
-	}
+	free(lmpdata);
 
 	if(errset)
 	{
-		CONS_Printf("ERROR: \"%s\", Line %lu: %s\n", lmpname, line_num, errmsg);
-		free_font(font);
-		font = NULL;
+		// TODO: get lump name from num
+		CONS_Printf("ERROR: \"%s\", Line %lu: %s\n", "----", line_num, errmsg);
+		free_fontdata(font);
+		free(errmsg);
+		return 0;
 	}
 
-	free(lmpdata);
-	free(toklist);
 	free(errmsg);
-	return font;
+	return 1;
 }
 
 // ============================================================================
@@ -466,6 +459,7 @@ int V_LoadFont(const char* lmpname)
 	}
 
 	// Find first free slot
+	// TODO: dynamically allocate new slots
 	int slot;
 	for(slot = 0;slot < MAX_FONTS;slot++)
 		if(fonts[slot] == NULL) break;
@@ -476,10 +470,15 @@ int V_LoadFont(const char* lmpname)
 		return -1;
 	}
 
+	// Allocate font struct
+	font_t* font = malloc(sizeof(font_t));
+	memset(font, 0, sizeof(font_t));
+
 	// Parse font data
-	font_t* font = parse_fontinfo(lmpnum, lmpname);
-	if(!font)
+	if(!parse_fontinfo(font, lmpnum))
 	{
+		free(font);
+
 		if(WADFILENUM(lmpnum) <= mainwads)
 			I_Error("Failed to load system font '%s'", lmpname);
 		else
@@ -488,10 +487,17 @@ int V_LoadFont(const char* lmpname)
 		return -1;
 	}
 
+	// Set lmpname as ID (if not set previously)
+	if(!font->fontid)
+	{
+		font->fontid = malloc(10);
+		strtolower(font->fontid, lmpname);
+	}
+
 	fonts[slot] = font;
+	num_fonts++;
 
 	CONS_Printf("V_LoadFont(): Loaded '%s' on slot %d\n", lmpname, slot);
-	CONS_Printf("-> %s\n", font->fontid);
 	return 0;
 }
 
@@ -499,6 +505,7 @@ int V_LoadFont(const char* lmpname)
 glyph_t* V_GetGlyph(font_t* font, int cp)
 {
 	if(!font) return NULL;
+
 	if(cp < 0 || cp > U_MAX) return NULL;
 
 	glyph_t** plane = font->planes[PLANEOF(cp)];
@@ -510,24 +517,28 @@ glyph_t* V_GetGlyph(font_t* font, int cp)
 	return glyph;
 }
 
-// TODO: return font_t* instead
-//int V_GetFont(const char* id)
-//{
-//	int i;
-//	for(i = 0;i < (int)num_fonts;i++)
-//	{
-//		font_t* font = fonts[i];
-//		if(!font) continue;
-//
-//		char* fontid = font->fontid;
-//		if(!fontid) continue;
-//
-//		if(!strcmp(id, fontid)) return i;
-//	}
-//	return -1;
-//}
+font_t* V_GetFont(const char* str)
+{
+	// Lowercase ID
+	char lstr[10];
+	strtolower(lstr, str);
 
-int V_DrawGlyph(int sx, int sy, int scale, glyph_t* glyph)
+	int i;
+	for(i = 0;i < (int)num_fonts;i++)
+	{
+		font_t* font = fonts[i];
+		if(!font) continue;
+
+		char* fontid = font->fontid;
+		if(!fontid) continue;
+
+		if(!strcmp(lstr, fontid)) return font;
+	}
+	return NULL;
+}
+
+//int V_DrawGlyph(int sx, int sy, fixed_t scale, int flags, glyph_t* glyph)
+int V_DrawGlyph(int sx, int sy, int scale, int colormap, glyph_t* glyph)
 {
 	if(!glyph) return 0;
 
@@ -535,7 +546,7 @@ int V_DrawGlyph(int sx, int sy, int scale, glyph_t* glyph)
 	int cy = glyph->rect.y;
 	int cw = glyph->rect.w;
 	int ch = glyph->rect.h;
-//	int gx = glyph->gx;
+	int gx = glyph->gx;
 	int gy = glyph->gy;
 
 	// Clamp scale factor value
@@ -544,56 +555,65 @@ int V_DrawGlyph(int sx, int sy, int scale, glyph_t* glyph)
 	patch_t* patch = glyph->pgfx;
 	if(patch)
 	{
-		// TODO: option to ignore offset assignments
-		int xpos = (sx << FRACBITS);
-		int ypos = ((sy+gy) << FRACBITS);
+		// TODO: fix this issue on V_DrawCroppedPatch
+		cw += cx;
+		ch += cy;
+
+		int xpos = ((sx + gx) << FRACBITS);
+		int ypos = ((sy + gy) << FRACBITS);
 		uint32_t scf = (scale << FRACBITS);
 		uint32_t vflags = (V_NOSCALEPATCH | V_NOSCALESTART);
+		uint8_t* cmap = V_GetStringColormap(colormap);
 
-		V_DrawCroppedPatch(xpos, ypos, scf, vflags, patch, cx, cy, (cw+cx), (ch+cy));
+		V_DrawCroppedPatch(xpos, ypos, scf, vflags, patch, cmap, cx, cy, cw, ch);
 	}
 
-	return (cw * scale);
+//	return (cw * scale);
+	return ((glyph->rect.w + 1) * scale);
 }
 
-//void V_DrawStringF(int sx, int sy, int scale, font_t* font, char* str)
-void V_DrawStringF(int sx, int sy, int scale, int fontid, char* str)
+void V_DrawStringF(int sx, int sy, int scale, font_t* font, const char* str)
 {
-	if(fontid > (int)num_fonts) return;
-
-	// Placeholder
-//	font_t* font = fonts[1];
-	font_t* font = fonts[fontid];
 	if(!font) return;
+
+	int cmap = 0;
+	int x_offs = 0;
+	int y_offs = 0;
+
+	uint32_t cp;
+	const char* s = str;
 
 	// Clamp scale value
 	if(scale < 1) scale = 1;
 
-	int x_offs = 0;
-	int y_offs = 0;
-
-	char* s = str;
-	uint32_t cp;
-
-	while((cp = V_GetCodePoint(&s)))
+	while((cp = V_GetCodepoint(&s)))
 	{
+		// TODO: move this to after the ctrl char check
 		glyph_t* glyph = V_GetGlyph(font, cp);
-		if(!glyph) glyph = V_GetGlyph(font, 0x0020);
+		if(!glyph) glyph = V_GetGlyph(font, 0x20);
 
-		// Linefeed
-		if(cp == 0x0A)
+		// TODO: replace invalid chars here
+
+		if(cp < 0x20)
 		{
-			x_offs  = 0;
-			y_offs += ((glyph->rect.h + 1)*scale);
+			// Colormap range: 0x10 -> 0x1F
+			if(cp >= 0x10)
+			{
+				cmap = (cp & 0x0F) << V_CHARCOLORSHIFT;
+			}
+
+			// Linefeed
+			else if(cp == 0x0A)
+			{
+				// TODO: replace rect.h by bbox.h
+				y_offs += ((glyph->rect.h + 1) * scale);
+				x_offs = 0;
+			}
+
 			continue;
 		}
 
-		// Ignore other ascii control chars
-		// TODO: add colormap range: 0x10 - 0x1F
-		if(cp < 0x20) continue;
-
-		x_offs += V_DrawGlyph((sx + x_offs), (sy + y_offs), scale, glyph);
-		x_offs += font->sp_x;
+		x_offs += V_DrawGlyph((sx + x_offs), (sy + y_offs), scale, cmap, glyph);
 	}
 }
 
@@ -606,13 +626,13 @@ void V_InitFonts()
 {
 	if(fonts) return;
 
+	CONS_Printf("V_InitFonts()...\n");
+
 	num_fonts = 0;
 
 	// Allocate font slots
 	fonts = malloc(sizeof(font_t*) * MAX_FONTS);
 	memset(fonts, 0, sizeof(font_t*) * MAX_FONTS);
-
-	CONS_Printf("V_InitFonts(): %u free slots\n", MAX_FONTS);
 
 	// Load system fonts
 	V_LoadFont("MANFNT"); // Mania font
@@ -621,8 +641,5 @@ void V_InitFonts()
 	V_LoadFont("TNYFNT"); // Thin font
 //	V_LoadFont("STCFNT"); // Console
 	V_LoadFont("CRFNT");  // Credits
-
-//	printf("crfnt test:  %i\n", V_GetFont("CRFNT"));
-//	printf("manfnt test: %i\n", V_GetFont("MANFNT"));
 }
 

@@ -407,13 +407,13 @@ void HWR_DrawCroppedPatch(GLPatch_t *gpatch, fixed_t x, fixed_t y, fixed_t pscal
 
 	if (pscale != FRACUNIT)
 	{
-		fwidth = (float)SHORT(gpatch->width) * fscale * dupx;
-		fheight = (float)SHORT(gpatch->height) * fscale * dupy;
+		fwidth *=  fscale * dupx;
+		fheight *=  fscale * dupy;
 	}
 	else
 	{
-		fwidth = (float)SHORT(gpatch->width) * dupx;
-		fheight = (float)SHORT(gpatch->height) * dupy;
+		fwidth *= dupx;
+		fheight *= dupy;
 	}
 
 	// positions of the cx, cy, are between 0 and vid.width/vid.height now, we need them to be between -1 and 1
